@@ -1,0 +1,434 @@
+<html>
+
+<head>
+    <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>コントローラー !devId</title>
+</head>
+
+<body text="#000000">
+    <style>
+        body {
+            padding: 0;
+            margin: 0;
+            touch-action: pan-x pan-y;
+            background-color: black;
+        }
+
+        .camera {
+            height: 100%;
+            margin: auto;
+            display: block;
+        }
+
+        .ctl {
+            font-family: 'Gill Sans', 'Gill Sans MT', Calibri, 'Trebuchet MS', sans-serif;
+            font-size: 40px;
+            width: 60px;
+            height: 60px;
+            padding: 0;
+            margin-bottom: 5;
+            border: 0;
+        }
+
+        .ctl:active {
+            background-color: #999;
+        }
+
+        .space {
+            margin-bottom: 60px;
+            height: 60px;
+            margin-left: 64px;
+        }
+    </style>
+    <div id="ctlBox" style="position: relative; user-select: none; -webkit-user-select: none;"
+        oncontextmenu="return false;">
+        <canvas id="view" class="camera" style="height: 100%;"></canvas>
+        <div style="position: absolute; top: 50%; left: 0;width: 100%;">
+            <p style="font-size: 50px; margin: 0; text-align: center;">+</p>
+        </div>
+
+        <div style="position: absolute; top: 50%; left: 10px;">
+            <!--<button type="button" class="ctl" onpointerdown="ctlEvent(this)" id="move-ul"
+                oncontextmenu="return false;">⬉</button>!-->
+            <span class="space"> </span>
+            <button type="button" class="ctl" onpointerdown="tcpEvent(this)" id="move-up"
+                oncontextmenu="return false;">▲</button>
+            <!--<button type="button" class="ctl" onpointerdown="ctlEvent(this)" id="move-ur"
+                oncontextmenu="return false;">⬈</button>!-->
+            <br>
+            <button type="button" class="ctl" onpointerdown="tcpEvent(this)" id="move-left"
+                oncontextmenu="return false;">◀︎</button>
+            <span class="space"> </span>
+            <button type="button" class="ctl" onpointerdown="tcpEvent(this)" id="move-right"
+                oncontextmenu="return false;">▶︎</button>
+            <br>
+            <span class="space"> </span>
+            <button type="button" class="ctl" onpointerdown="tcpEvent(this)" id="move-down"
+                oncontextmenu="return false;">▼</button>
+        </div>
+        <div style="position: absolute; top: 50%; right: 10px;" id="r">
+            <button type="button" class="ctl" onclick="tcpEvent(this)" id="atk" oncontextmenu="return false;">'</button>
+            <span class="space"></span>
+        </div>
+        <div style="position: absolute; top: 50%; right: 10px;margin-top: 64px;">
+            <button type="button" class="ctl" onpointerdown="tcpEvent(this)" id="cam-m-left"
+                oncontextmenu="return false;">◀︎</button>
+            <button type="button" class="ctl" onclick="tcpEvent(this)" id="cam-reset"
+                oncontextmenu="return false;">●</button>
+            <button type="button" class="ctl" onpointerdown="tcpEvent(this)" id="cam-m-right"
+                oncontextmenu="return false;">▶︎</button>
+        </div>
+        <div style="position: absolute; bottom: 0%; right: 0px;margin-top: 64px;">
+            <button type="button" onclick="full()" class="ctl" id="full">[ ]</button>
+        </div>
+    </div>
+    <script language="javascript" type="text/javascript">
+        let longl = 0;
+        let longr = 0;
+        // 全画面処理
+        function full() {
+            if (document.getElementById("full").innerHTML === "[ ]") {
+                document.documentElement.requestFullscreen()
+                document.getElementById("full").innerHTML = "]["
+            } else {
+                document.exitFullscreen()
+                document.getElementById("full").innerHTML = "[ ]"
+            }
+        }
+        // deviceIdの指定（サーバー処理）
+        const deviceId = "!devId"
+        // WSで送信するコントロール用データ
+        const ctlSt = {
+            m: {
+                r: 0,
+                l: 0
+            },
+            c: 90,
+            r: 0
+        }
+        // WSのレスポンス（光センサー）
+        const gpio = {}
+        // コントロール用WS
+        function ctlSocket() {
+            let url = new URL("./control?device=" + deviceId, location.href)
+            url.protocol = "ws://"
+            const ctlWS = new WebSocket(url)
+            ctlWS.onopen = () => {
+                // 定期的に送信
+                window["ctlInterval"] = setInterval(() => {
+                    ctlWS.send(JSON.stringify(ctlSt))
+                    if (ctlSt.r > 0) {
+                        ctlSt.r = 0
+                    } else {
+                        ctlSt.r = 0
+                    }
+                }, 100)
+            }
+            ctlWS.onmessage = (e) => {
+                // レスポンスを格納
+                if (e.data[0]==="{") {
+                    gpio.gpio = ((e.data).replace("\u0000", ""))
+                } else {
+                    gpio.mato = ((e.data).replace("\u0000", "")).split("")
+                }
+            }
+            ctlWS.onclose = () => {
+                clearInterval(ctlInterval)
+                alert("error [C-close] : 接続が遮断されました")
+            }
+        }
+        // 画像受信用WS
+        function loadImg() {
+            let url = new URL("./img?device=" + deviceId, location.href)
+            url.protocol = "ws://"
+            const imgWS = new WebSocket(url)
+            imgWS.onopen = () => {
+                window["imgInterval"] = setTimeout(() => {
+                    imgWS.send("g")
+                }, 40)
+            }
+            imgWS.onmessage = (e) => {
+                setTimeout(() => {
+                    // 画像を送信させる
+                    imgWS.send("g")
+                }, 80);
+                // Blob
+                const blob = e.data
+                // mimeTypeを指定
+                blob.type = "image/jpeg"
+                const url = URL.createObjectURL(blob)
+                // 描画
+                draw(document.getElementById("view"), url);
+            }
+            imgWS.onclose = () => {
+                //clearInterval(imgInterval)
+                alert("error [I-close] : 接続が遮断されました")
+            }
+        }
+        // 画像描画関数
+        function draw(canvas, imageUrl) {
+            const image = new Image();
+            image.addEventListener("load", function () {
+                canvas.width = image.naturalWidth;
+                canvas.height = image.naturalHeight;
+                const ctx = canvas.getContext("2d");
+                ctx.drawImage(image, image.naturalWidth, image.naturalHeight, -image.naturalWidth, -image.naturalHeight,);
+                URL.revokeObjectURL(imageUrl)
+            });
+            image.src = imageUrl;
+        }
+        loadImg()
+        ctlSocket()
+        // モーターの状態をリセット
+        function reset() {
+            ctlSt.m = {
+                r: 0,
+                l: 0
+            };
+            (["move-up", "move-down", "move-right", "move-left"]).forEach((e) => {
+                buttonUp(e)
+            })
+        }
+        // ボタンが押された時に実行　elm = htmlElement
+        function tcpEvent(elm) {
+            if (elm.id.substring(0, 4) === "move") {
+                ctlSt.m = {
+                    r: 0,
+                    l: 0
+                };
+                ["move-up", "move-down", "move-right", "move-left"].forEach((e) => {
+                    const button = document.getElementById(e)
+                    button.removeEventListener("pointerup", reset)
+                })
+                elm.addEventListener("pointerup", reset, { once: true })
+                switch (elm.id.substring(5)) {
+                    case "up":
+                        ctlSt.m = {
+                            r: 1,
+                            l: 1
+                        }
+                        break;
+                    case "ul":
+                        ctlSt.m = {
+                            r: 1,
+                            l: 0.5
+                        }
+                        break;
+                    case "ur":
+                        ctlSt.m = {
+                            r: 0.5,
+                            l: 1
+                        }
+                        break;
+                    case "down":
+                        ctlSt.m = {
+                            r: -1,
+                            l: -1
+                        }
+                        break;
+                    case "right":
+                        ctlSt.m = {
+                            r: -1,
+                            l: 1
+                        }
+                        break;
+                    case "left":
+                        ctlSt.m = {
+                            r: 1,
+                            l: -1
+                        }
+                        break;
+                    default:
+                        break;
+                }
+            } else if (elm.id.substring(0, 5) === "cam-m") {
+                switch (elm.id.substring(6)) {
+                    case "right":
+                        ctlSt.c = 0
+                        ctlSt.c_d = -2
+                        if (ctlSt.c > 175) {
+                            ctlSt.c = 175
+                        } else if (ctlSt.c < 5) {
+                            ctlSt.c = 5
+                        }
+                        break;
+                    case "left":
+                        ctlSt.c = 0
+                        ctlSt.c_d = 2
+                        if (ctlSt.c > 175) {
+                            ctlSt.c = 175
+                        } else if (ctlSt.c < 5) {
+                            ctlSt.c = 5
+                        }
+                        break;
+                    default:
+                        break;
+                }
+                elm.addEventListener("pointerup", () => {
+                    ctlSt.c_d = 0
+                    ctlSt.c = 0
+                }, { once: true })
+            } else if (elm.id === "cam-reset") {
+                ctlSt.c = "reset"
+            } else if (elm.id === "atk") {
+                ctlSt.r = 1
+                keySt.atk = false
+                document.getElementById("r").style.top = document.documentElement.clientHeight / 2
+                let h = document.documentElement.clientHeight / 2
+                let r = false
+                let inter = setInterval(() => {
+                    h = h - 10
+                    document.getElementById("r").style.top = document.getElementById("r").style.top = h
+                    if (h < -150) {
+                        h = document.documentElement.clientHeight
+                        r = true
+                    }
+                    if (r && h < document.documentElement.clientHeight / 2) {
+                        document.getElementById("r").style.top = "50%"
+                        clearInterval(inter)
+                        keySt.atk = true
+                    }
+                }, 10)
+            }
+        }
+
+        var keySt = { atk: true }
+        document.addEventListener("keydown", keyInput)
+        document.addEventListener("keyup", keyUp)
+        function keyUp(event) {
+            if ("wasdqe".indexOf(event.key) !== -1) reset()
+            else if (event.key === "ArrowRight") {
+                buttonUp("cam-m-right")
+                ctlSt.c_d = 0
+            }
+            else if (event.key === "ArrowLeft") {
+                buttonUp("cam-m-left")
+                ctlSt.c_d = 0
+
+            }
+            else if (event.key === "ArrowDown") buttonUp("cam-reset")
+        }
+        function buttonUp(id) {
+            document.getElementById(id).style.backgroundColor = ""
+        }
+        function buttonDown(id) {
+            document.getElementById(id).style.backgroundColor = "#999"
+        }
+        function keyInput(event) {
+            let id;
+            switch (event.key) {
+                case "w":
+                    reset()
+                    ctlSt.m = {
+                        r: 1,
+                        l: 1
+                    }
+                    buttonDown("move-up")
+                    break;
+                case "q":
+                    reset()
+                    ctlSt.m = {
+                        r: 1,
+                        l: 0.5
+                    }
+                    buttonDown("move-ul")
+                    break;
+                case "e":
+                    reset()
+                    ctlSt.m = {
+                        r: 0.5,
+                        l: 1
+                    }
+                    buttonDown("move-ur")
+                    break;
+                case "w":
+                    reset()
+                    ctlSt.m = {
+                        r: 1,
+                        l: 1
+                    }
+                    buttonDown("move-up")
+                    break;
+                case "a":
+                    reset()
+                    ctlSt.m = {
+                        r: 1,
+                        l: -1
+                    }
+                    buttonDown("move-left")
+                    break;
+                case "s":
+                    reset()
+                    ctlSt.m = {
+                        r: -1,
+                        l: -1
+                    }
+                    buttonDown("move-down")
+                    break;
+                case "d":
+                    reset()
+                    ctlSt.m = {
+                        r: -1,
+                        l: 1
+                    }
+                    buttonDown("move-right")
+                    break;
+                case "ArrowUp":
+                    if (keySt.atk) {
+                        keySt.atk = false
+                        ctlSt.r = 1
+                        document.getElementById("r").style.top = document.documentElement.clientHeight / 2
+                        let h = document.documentElement.clientHeight / 2
+                        let r = false
+                        let t = 0
+                        let inter = setInterval(() => {
+                            h = h - 10
+                            document.getElementById("r").style.top = document.getElementById("r").style.top = h
+                            t++
+                            if (t === 50) {
+                                h = document.documentElement.clientHeight
+                                r = true
+                            }
+                            if (r && h < document.documentElement.clientHeight / 2) {
+                                document.getElementById("r").style.top = "50%"
+                                clearInterval(inter)
+                                keySt.atk = true
+                            }
+                        }, 10)
+                    } else { }
+                    break;
+                case "ArrowRight":
+                    ctlSt.c = 0
+                    ctlSt.c_d = -2
+                    if (ctlSt.c > 175) {
+                        ctlSt.c = 175
+                    } else if (ctlSt.c < 5) {
+                        ctlSt.c = 5
+                    }
+                    buttonDown("cam-m-right")
+                    break;
+                case "ArrowDown":
+                    ctlSt.c = "reset"
+                    buttonDown("cam-reset")
+                    break;
+                case "ArrowLeft":
+                    ctlSt.c = 0
+                    ctlSt.c_d = 2
+                    if (ctlSt.c > 175) {
+                        ctlSt.c = 175
+                    } else if (ctlSt.c < 5) {
+                        ctlSt.c = 5
+                    }
+                    buttonDown("cam-m-left")
+                    break;
+
+                default:
+                    break;
+            }
+        };
+
+    </script>
+</body>
+
+</html>
